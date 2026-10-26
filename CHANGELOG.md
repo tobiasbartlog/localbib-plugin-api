@@ -4,10 +4,135 @@ The package version follows semver; its major number is the Add-on Contract
 version (`plugin_api.API_VERSION`). A core accepts exactly one contract
 version; an Add-on built against another one is shown as incompatible.
 
-## Unreleased
+## 2.6.0 — BibTeX into the core's import, the PDF viewer, links to a passage
 
-Added (no contract change, `API_VERSION` stays `2`):
+Added (additive, `API_VERSION` stays `2`; frontend contract, no Python API
+change):
 
+- `window.LocalBib.importBibtex(text, { collection, filename })` hands BibTeX
+  text to the core's import: the import page opens its BibTeX dialog with the
+  text as the `.bib` file, previews it (at once when `collection` names an
+  active Collection, which is preselected as the target; otherwise after the
+  user picks one) and creates only when the user confirms — new entries keep
+  their keys, entries the library holds are matched, and all of them land in
+  the chosen Collection. The text stays in memory. Returns `true`, or `false`
+  for an empty text. Feature-check it
+  (`typeof LocalBib.importBibtex === 'function'`) for cores before 2.6.
+- The Item detail route `/paper/{id}` takes `?page=N&find=<passage text>`:
+  the PDF preview opens on PDF page `N` and frames the paragraph where the
+  passage starts on that page — no frame when it is not found there or not
+  unambiguous, never a guessed spot. `?back=<route>` puts a key "← Back to
+  <label>" at the start of the detail head (`label` = the nav label of the
+  route's area, else "Back") that returns there with `router.push`; only an
+  internal route counts (starts with `/`, not `//`, no backslash, whitespace
+  or scheme), anything else is ignored. A core before 2.6 ignores `find` and
+  `back` and only goes to the page.
+- `window.LocalBib.components.PdfPreview` — the detail view's PDF preview as
+  a component: props `paperId`, `page`, `find` (frames the passage's
+  paragraph on that page like `?find=`, the page only when it is not found),
+  event `state` `{status: loading|ready|nopdf|failed, page, pages, found}`.
+  Feature-check it in `LocalBib.components` for cores before 2.6.
+- The import route takes `?bibtex=1` (with the optional `collection=<id>`):
+  the BibTeX dialog opens at once, for a `.bib` file the user picks.
+
+## 2.5.0 — Passages with page numbers
+
+Added (additive, `API_VERSION` stays `2`; needs only `library.read`):
+
+- `LibraryApi.search_passages(query, limit=10)` — the library's text
+  passages ranked like the core's passage search (hybrid semantic + BM25,
+  BM25 alone without embeddings): `[{citekey, title, year, text, page_start,
+  page_end, printed_page_start, printed_page_end, score}]`. `text` is the
+  whole passage, not an excerpt.
+- `LibraryApi.get_passages(citekey, offset=0, limit=20)` — one Item's
+  passages in reading order: `{citekey, total, passages: [{index, text,
+  page_start, page_end, printed_page_start, printed_page_end}]}`; `None` for
+  an unknown Cite Key, `total: 0` when the Item has no extracted text.
+- `page_*` are 1-based PDF pages; `printed_page_*` is the page printed on the
+  work — the PDF's page label, else the metadata `pages` range when its
+  length equals the PDF's page count — and `None` when neither is reliable.
+  The core never guesses a printed page. Guard both methods with
+  `getattr(library, "search_passages", None)` for hosts before 2.5.
+- `plugin_api.testing.InMemoryLibrary` takes `passages=[...]` per reference
+  and answers both methods in the same shape.
+
+## 2.4.0 — The Markdown editor for Add-ons
+
+Added (additive, `API_VERSION` stays `2`; frontend contract, no Python API
+change):
+
+- `window.LocalBib.components.MarkdownEditor` — the core's WYSIWYG Markdown
+  editor as a Vue component (`v-model`, `readonly`, `placeholder`,
+  `resolvers`, events `focus`/`blur`/`ready`, method `flush()`). It emits
+  only after an edit, so saving on `update:modelValue` never rewrites an
+  untouched file. Citations `[@key, S. 12]` resolve against the library;
+  wikilinks `[[id|Alias]]` through the Add-on's `resolvers.wikilink`.
+- `window.LocalBib.renderMarkdown(text, opts)` — sanitised HTML with the
+  same citation/wikilink chips; `window.LocalBib.hydrateMarkdown(el)` labels
+  and links the citation chips of a rendered element.
+- Stable core endpoint `GET /api/papers/lookup` (`q`/`limit` or repeatable
+  `keys`) → `{papers: [{id, cite_key, title, authors, year, doi, has_pdf}]}`.
+
+## 2.3.0 — Reference details for literature checks
+
+Added (additive, `API_VERSION` stays `2`):
+
+- `LibraryApi.get_reference` (and every dict `search_references` returns)
+  carries `has_pdf` (bool — the Item's PDF is in the library), `volume`,
+  `issue` and `pages` (str or `None`; the core fills them from what the Item's
+  stored metadata knows, e.g. a BibTeX import). `id` (the Item id, for the
+  core's Item route `/paper/{id}`) is now documented as part of the answer.
+  Add-ons that read only the old keys are unaffected.
+- `plugin_api.testing.InMemoryLibrary` answers the same shape: missing keys
+  of a seeded reference are filled with defaults (`id` stable per Cite Key,
+  `has_pdf` False, the rest `None`).
+
+## 2.2.0 — Reserved permissions, one settings value rule
+
+Changed (`API_VERSION` stays `2`):
+
+- `files` and `storage` are **reserved** Berechtigungen: declaring them stays
+  valid (existing Manifests keep loading), but they grant nothing. The core
+  never had a host service behind them, so `api.files` and `api.storage`
+  were always `None` in the core; the docs called them "Enforced" and the
+  fakes handed over `NullFiles` / `TempSqliteStorage`. Now the docs, the
+  consent dialog and `plugin_api.testing.make_api` agree with the core: both
+  attributes are always `None`, whatever is declared or passed.
+- `PermissionInfo` gains `reserved: bool = False` (additive); `files` and
+  `storage` are `enforced=False, service=None, reserved=True` and no longer
+  appear in `GATED_SERVICES`. The Marketplace's permission rows carry
+  `reserved`, shown as "Reserved — grants nothing yet".
+- `NullFiles` and `TempSqliteStorage` stay importable for an Add-on's own
+  unit tests.
+- `SettingsApi.set` has one value rule, in the core and in
+  `plugin_api.testing.InMemorySettings` alike (new `plugin_api.setting_value`):
+  `str`, `bool` and `None` are stored as they are; `int` and `float` become
+  their `str` (what the core always kept on disk; the fake used to keep the
+  number); anything else (list, dict, bytes, ...) raises `TypeError` and
+  stores nothing (the core used to accept it and lose it as `None` on the
+  next load). Store structured data as a JSON string of your own.
+
+## 2.1.0 — Collections
+
+Added (additive, `API_VERSION` stays `2`):
+
+- `LibraryApi` reads Collections under `library.read` — no new permission:
+  `list_collections()` (active, archived and tombstoned, with `deleted` /
+  `deleted_at`), `get_collection(id)`, `get_collection_refs(id)` (the Items
+  as stored Cite Keys, oldest addition first) and
+  `export_collection_bibtex(id)`. A Collection is `{id, name, description,
+  archived, archived_at, deleted, deleted_at, created_at, updated_at,
+  item_count}`. Guard with `getattr(library, "list_collections", None)` for
+  hosts before 2.1.
+- `on_change` now delivers Collection events
+  `{"type": "collection", "action": ..., "collection_id": int}` with the
+  actions in the new `COLLECTION_EVENT_ACTIONS` (`created`, `renamed`,
+  `updated`, `archived`, `restored`, `deleted`, `members_changed`). Before
+  2.1 the core's `on_change` never fired.
+- `plugin_api.testing.InMemoryLibrary` takes `collections=[...]` and gains
+  `add_collection`, `rename_collection`, `set_collection_description`,
+  `archive_collection`, `delete_collection`, `set_collection_refs` and
+  `emit_collection`, which fire the same events as the core.
 - `localbib-addon build` precompiles bytecode when the Manifest names a
   CPython build tag (`"python": "cp313-win_amd64"`): every `.py` in the Zip,
   the Add-on's own package and `vendor/`, gets an unchecked-hash `.pyc`
