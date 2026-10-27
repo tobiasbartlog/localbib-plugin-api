@@ -54,8 +54,8 @@ class PermissionInfo:
     ``service`` names the ``PluginApi`` attribute the permission unlocks
     (``None`` for a permission that unlocks no service).
     ``reserved`` is True for a Berechtigung that may be declared but grants
-    nothing yet (``files``, ``storage``): the core has no host service for it,
-    so the matching ``PluginApi`` attribute is always ``None``.
+    nothing yet (``files``): the core has no host service for it, so the
+    matching ``PluginApi`` attribute is always ``None``.
     """
 
     permission: Permission
@@ -75,10 +75,11 @@ PERMISSIONS: Mapping[Permission, PermissionInfo] = {
     Permission.SETTINGS_CORE: PermissionInfo(Permission.SETTINGS_CORE, True, None),
     # In-process code can always open a socket.
     Permission.NETWORK: PermissionInfo(Permission.NETWORK, False, None),
-    # Reserved (2.2.0): declaring them stays valid, they grant nothing yet -
-    # ``api.files`` / ``api.storage`` are always None, in the core and the fakes.
+    # Reserved (2.2.0): declaring it stays valid, it grants nothing yet -
+    # ``api.files`` is always None, in the core and the fakes.
     Permission.FILES: PermissionInfo(Permission.FILES, False, None, reserved=True),
-    Permission.STORAGE: PermissionInfo(Permission.STORAGE, False, None, reserved=True),
+    # 2.7.0: the Add-on's own SQLite databases (``StorageApi``).
+    Permission.STORAGE: PermissionInfo(Permission.STORAGE, True, "storage"),
 }
 
 #: The ``PluginApi`` services that exist only when their permission is declared.

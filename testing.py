@@ -16,6 +16,7 @@ and ``settings.core()`` answers only with ``settings.core`` declared.
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import itertools
 import math
@@ -473,7 +474,8 @@ class NullFiles:
             callback(event)
 
 
-_DB_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+# The core's rule (addon_storage._NAME): a name the fake accepts must not fail in the core.
+_DB_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
 _DOI_PREFIX = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", re.IGNORECASE)
 
 
@@ -486,7 +488,9 @@ class TempSqliteStorage:
     """A ``StorageApi`` whose databases are SQLite files in a temp folder.
 
     Pass ``directory`` (e.g. pytest's ``tmp_path``) to control the location;
-    otherwise a private temp folder is created and removed by :meth:`close`.
+    otherwise a private temp folder is created and removed by :meth:`close` —
+    or, when nobody calls it (the default fake of :func:`make_api`), when the
+    interpreter exits. Never earlier: a test may hold only a connection.
     """
 
     def __init__(self, directory: Union[str, Path, None] = None) -> None:
@@ -495,20 +499,29 @@ class TempSqliteStorage:
             tempfile.mkdtemp(prefix="localbib-addon-")
         )
         self._connections: list[sqlite3.Connection] = []
+        if self._owned:
+            atexit.register(_release, self._connections, self.directory)
 
     def open_plugin_db(self, name: str) -> sqlite3.Connection:
         if not _DB_NAME.match(name) or ".." in name:
             raise ValueError(f"invalid database name: {name!r}")
-        conn = sqlite3.connect(self.directory / f"{name}.db")
+        # Like the core (2.7): usable from any thread, the Add-on serializes.
+        conn = sqlite3.connect(self.directory / f"{name}.db", check_same_thread=False)
         self._connections.append(conn)
         return conn
 
     def close(self) -> None:
-        for conn in self._connections:
-            conn.close()
-        self._connections.clear()
-        if self._owned:
-            shutil.rmtree(self.directory, ignore_errors=True)
+        _release(self._connections, self.directory if self._owned else None)
+
+
+def _release(connections: list, directory: Optional[Path]) -> None:
+    # Idempotent (close() and atexit). Connections first: Windows refuses to
+    # delete an open database file.
+    for conn in connections:
+        conn.close()
+    connections.clear()
+    if directory is not None:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 # =============================================================================
@@ -563,9 +576,11 @@ def make_api(
 
     Services not unlocked by ``permissions`` are ``None`` even when passed —
     the same rule the core applies. A declared service you do not pass gets a
-    default fake (empty library, a ``DummyLlm`` answering ``""``). ``files``
-    and ``storage`` are reserved Berechtigungen that grant nothing (2.2.0):
-    both attributes are always ``None``, like in the core, whatever you pass. ``settings`` seeds the plugin's own keys;
+    default fake (empty library, a ``DummyLlm`` answering ``""``, a
+    :class:`TempSqliteStorage` in a private temp folder — pass your own to
+    control the location and close it). ``files`` is a reserved Berechtigung
+    that grants nothing (2.2.0): ``api.files`` is always ``None``, like in the
+    core, whatever you pass. ``settings`` seeds the plugin's own keys;
     ``core_settings`` (default :data:`DEFAULT_CORE_SETTINGS`) is visible
     through ``settings.core()`` only with ``settings.core`` declared. A
     library with a ``write_allowed`` attribute (``InMemoryLibrary``) gets it
@@ -589,9 +604,9 @@ def make_api(
         routes=registry,
         library=lib,
         llm=gate(Permission.LLM, llm, DummyLlm),
-        # Reserved: the core hands nothing over for these, so neither do we.
+        # Reserved: the core hands nothing over for it, so neither do we.
         files=None,
-        storage=None,
+        storage=gate(Permission.STORAGE, storage, TempSqliteStorage),
         settings=InMemorySettings(settings, core),
         permissions=perms,
     )

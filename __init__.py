@@ -263,7 +263,19 @@ class FilesApi(Protocol):
 
 
 class StorageApi(Protocol):
-    def open_plugin_db(self, name: str) -> Any: ...  # returns a sqlite3.Connection-like handle
+    """The Add-on's own SQLite databases (2.7.0, ``storage`` declared).
+
+    ``open_plugin_db(name)`` opens, and on first use creates, the database
+    ``name`` (letters, digits, ``_``, ``-``, ``.``; no path, no ``..`` —
+    ``ValueError`` otherwise) in a folder only this Add-on gets. The handle is
+    a ``sqlite3.Connection`` usable from any thread
+    (``check_same_thread=False``); the Add-on serializes its own access. The
+    core closes every handle on unload, keeps the files across Bundle updates
+    and removals, and puts them into the user's backups. A core before 2.7
+    hands over ``None``: keep the data in memory then.
+    """
+
+    def open_plugin_db(self, name: str) -> Any: ...  # returns a sqlite3.Connection
 
 
 @dataclass(frozen=True)
@@ -316,9 +328,9 @@ class PluginApi(Protocol):
 
     ``ui``/``routes`` are always present. The gated services (``library``,
     ``llm`` — see ``GATED_SERVICES``) are handed over only when the manifest
-    declares the matching Berechtigung and are ``None`` otherwise. ``files``
-    and ``storage`` are reserved: declaring them is valid, but they grant
-    nothing yet and are always ``None``; they may also be ``None`` when the host has no such service
+    declares the matching Berechtigung and are ``None`` otherwise; ``storage``
+    since 2.7.0. ``files`` is reserved: declaring it is valid, but it grants
+    nothing yet and is always ``None``. A service may also be ``None`` when the host has no such service
     (e.g. no embeddings endpoint). Plugins must degrade gracefully.
     ``settings`` is the plugin-scoped store; its ``core()`` answers only with
     ``settings.core`` declared. ``plugin_api.testing.make_api`` builds this

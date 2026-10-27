@@ -129,9 +129,9 @@ def test_the_seven_permissions_and_their_enforcement():
     }
     assert set(PERMISSIONS) == set(Permission)
     enforced = {p.value for p, info in PERMISSIONS.items() if info.enforced}
-    assert enforced == {"library.read", "library.write", "llm", "settings.core"}
+    assert enforced == {"library.read", "library.write", "llm", "settings.core", "storage"}
     reserved = {p.value for p, info in PERMISSIONS.items() if info.reserved}
-    assert reserved == {"files", "storage"}
+    assert reserved == {"files"}
     schema_enum = load_schema()["properties"]["permissions"]["items"]["enum"]
     assert set(schema_enum) == {p.value for p in Permission}
 
@@ -145,8 +145,9 @@ def test_library_write_needs_library_read():
 
 
 def test_granted_services_follow_the_permissions():
-    assert set(GATED_SERVICES) == {"library", "llm"}
+    assert set(GATED_SERVICES) == {"library", "llm", "storage"}
     assert granted_services(["llm", "network", "library.write"]) == {"llm"}
+    assert granted_services(["storage", "files"]) == {"storage"}
     with pytest.raises(ValueError):
         granted_services(["camera"])
 

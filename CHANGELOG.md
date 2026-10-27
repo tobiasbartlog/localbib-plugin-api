@@ -4,6 +4,24 @@ The package version follows semver; its major number is the Add-on Contract
 version (`plugin_api.API_VERSION`). A core accepts exactly one contract
 version; an Add-on built against another one is shown as incompatible.
 
+## 2.7.0 — The Add-on's own databases
+
+Added (additive, `API_VERSION` stays `2`):
+
+- The Berechtigung `storage` is no longer reserved: it is **enforced** and
+  unlocks `api.storage`, a `StorageApi`. `open_plugin_db(name)` opens, and on
+  first use creates, the SQLite database `name` in a folder only this Add-on
+  gets (`addon-data/<id>/` in the settings folder). The handle is a
+  `sqlite3.Connection` usable from any thread; the Add-on serializes its own
+  access. The core closes every handle when the Add-on unloads, keeps the
+  files across Bundle updates and removals and puts them into the user's
+  backups. A core before 2.7 hands over `None` even with `storage` declared:
+  feature-check `api.storage` and keep the data in memory then.
+- `plugin_api.testing.make_api` hands over a `TempSqliteStorage` for a
+  declared `storage` (yours, when you pass one); `TempSqliteStorage` opens its
+  connections with `check_same_thread=False`, like the core.
+- `files` stays reserved.
+
 ## 2.6.0 — BibTeX into the core's import, the PDF viewer, links to a passage
 
 Added (additive, `API_VERSION` stays `2`; frontend contract, no Python API

@@ -106,7 +106,7 @@ new permission an update declares. The list is closed at seven:
 | `settings.core` | `api.settings.core()` — the polite mailto, the OpenAlex key, the UI language, the base folder | **Enforced** |
 | `network` | talking to external services on your own | Declared only — in-process code can always open a socket |
 | `files` | nothing yet — reserved; `api.files` is always `None` | **Reserved**: declaring it is valid, it grants nothing |
-| `storage` | nothing yet — reserved; `api.storage` is always `None` | **Reserved**: declaring it is valid, it grants nothing |
+| `storage` | `api.storage` — your own SQLite databases (`open_plugin_db(name)`, 2.7) in a folder only your Add-on gets; kept across updates, included in backups | **Enforced** |
 
 "Enforced" means the core hands over the matching `PluginApi` attribute (see
 `plugin_api.GATED_SERVICES`) only when you declared the permission; otherwise
@@ -119,10 +119,14 @@ frontend runs in the app's page and reaches the stable REST endpoints below
 either way, so declare `library.write` also when only your frontend adds
 Items. Ask for only what you use: `localbib-addon-template`'s
 `template/__init__.py` shows the pattern (`if api.library is not None: ...`).
-"Reserved" (`files`, `storage`) means the name is part of the closed list
-and declaring it keeps your Manifest valid, but the core has no service
-behind it yet: the attribute is always `None`. Keep your own data in your
-own files under a folder setting (a `path` setting in your Manifest).
+"Reserved" (`files`) means the name is part of the closed list and
+declaring it keeps your Manifest valid, but the core has no service behind
+it yet: the attribute is always `None`. Keep data the user should see as
+files under a folder setting (a `path` setting in your Manifest), and your
+Add-on's own records in `api.storage`. The `storage` handle is a
+`sqlite3.Connection` usable from any thread (serialize your own access); the
+core closes it on unload. A core before 2.7 hands over `None` even with
+`storage` declared — keep the data in memory then.
 
 `create_by_doi(doi, *, title="", authors=None, year=None, journal="",
 abstract="")` is the same intake as `POST /api/papers/by-doi`: an Item with
@@ -466,7 +470,8 @@ Bundle loads.
 (`InMemoryLibrary`, `DummyLlm`, `InMemorySettings`) plus
 `make_api(permissions, ...)`, which assembles a `PluginApi` exactly the way
 the core does — a service whose permission is not declared is `None`, even if
-you pass one, and the reserved `files`/`storage` are always `None`.
-(`NullFiles` and `TempSqliteStorage` stay importable for your own unit tests
-of code that will use those services once they exist.) See
+you pass one, and the reserved `files` is always `None`. A declared
+`storage` gets a `TempSqliteStorage` (pass your own, e.g. on `tmp_path`, and
+close it). (`NullFiles` stays importable for your own unit tests of code that
+will use that service once it exists.) See
 `localbib-addon-template/tests/test_template_addon.py` for the pattern.

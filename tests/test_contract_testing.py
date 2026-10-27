@@ -24,28 +24,63 @@ def test_make_api_hands_over_only_declared_services():
     full = make_api([p.value for p in Permission])
     assert isinstance(full.library, InMemoryLibrary)
     assert isinstance(full.llm, DummyLlm)
-    # files/storage are reserved (2.2.0): never handed over, like the core.
-    assert full.files is None and full.storage is None
+    # files is reserved (2.2.0): never handed over, like the core.
+    assert full.files is None
+    # storage is enforced since 2.7.0: a default temp-folder fake.
+    assert isinstance(full.storage, TempSqliteStorage)
+    full.storage.close()
     assert full.settings.core().ui_language == "en"
 
 
-def test_reserved_permissions_grant_nothing_even_when_a_fake_is_passed():
+def test_reserved_files_grants_nothing_even_when_a_fake_is_passed():
     storage = TempSqliteStorage()
     try:
         api = make_api(["files", "storage"], files=NullFiles(), storage=storage)
-        assert api.files is None and api.storage is None
+        assert api.files is None
+        assert api.storage is storage
         assert {"files", "storage"} <= {p.value for p in api.permissions}
     finally:
         storage.close()
 
 
-def test_reserved_permissions_are_valid_but_not_gated():
+def test_storage_is_none_unless_declared():
+    storage = TempSqliteStorage()
+    try:
+        assert make_api(["library.read"], storage=storage).storage is None
+    finally:
+        storage.close()
+
+
+def test_temp_sqlite_storage_connection_works_across_threads(tmp_path):
+    import threading
+
+    storage = TempSqliteStorage(tmp_path)
+    db = storage.open_plugin_db("threads")
+    db.execute("CREATE TABLE t (v INTEGER)")
+    errors = []
+
+    def write():
+        try:
+            db.execute("INSERT INTO t VALUES (1)")
+            db.commit()
+        except Exception as exc:  # pragma: no cover - the failure we guard against
+            errors.append(exc)
+
+    worker = threading.Thread(target=write)
+    worker.start()
+    worker.join()
+    assert errors == [] and db.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 1
+    storage.close()
+
+
+def test_files_is_reserved_and_storage_is_gated():
     from plugin_api import GATED_SERVICES, PERMISSIONS
 
-    for perm in (Permission.FILES, Permission.STORAGE):
-        info = PERMISSIONS[perm]
-        assert info.reserved and not info.enforced and info.service is None
-    assert set(GATED_SERVICES) == {"library", "llm"}
+    info = PERMISSIONS[Permission.FILES]
+    assert info.reserved and not info.enforced and info.service is None
+    storage = PERMISSIONS[Permission.STORAGE]
+    assert storage.enforced and not storage.reserved and storage.service == "storage"
+    assert set(GATED_SERVICES) == {"library", "llm", "storage"}
 
 
 def test_make_api_ignores_a_passed_service_without_its_permission():

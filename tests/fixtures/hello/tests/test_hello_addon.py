@@ -52,12 +52,22 @@ def test_activate_registers_nav_item_and_uses_declared_services(plugin, tmp_path
     assert [n.route for n in api.ui.nav_items] == ["/hello"]
     assert plugin.greeting("doe2024") == "Warm hello, Deep Things!"
     assert llm.requests[0]["tier"] == "fast"
-    # ``storage`` is declared but reserved (2.2.0): api.storage is None, so
-    # the Add-on keeps no history and degrades instead of failing.
-    assert api.storage is None
-    assert plugin.history() == []
+    # ``storage`` is enforced since 2.7.0: the declared fake is handed over
+    # and the greeting lands in the Add-on's own database.
+    assert api.storage is storage
+    assert plugin.history() == ["Warm hello, Deep Things!"]
     asyncio.run(plugin.deactivate())
     storage.close()
+
+
+def test_without_storage_the_addon_keeps_no_history(plugin):
+    """A core before 2.7 hands over ``None``: the Add-on degrades instead of failing."""
+    api = make_api(["library.read", "llm"], library=InMemoryLibrary(REFS), llm=DummyLlm("Hi"))
+    asyncio.run(plugin.activate(api))
+    assert api.storage is None
+    plugin.greeting("doe2024")
+    assert plugin.history() == []
+    asyncio.run(plugin.deactivate())
 
 
 def test_undeclared_llm_is_none_and_the_addon_degrades(plugin):
